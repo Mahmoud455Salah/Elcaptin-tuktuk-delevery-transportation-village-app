@@ -1,0 +1,6 @@
+{
+  "name": "الكابتن | اطلب توكتوك بسهولة وسرعة",
+  "description": "تطبيق الكابتن لطلب مشاوير وتوصيل طلبات بالتوكتوك في مركز الزقازيق، بردين، كفر أباظة، أنشاص والقرى المجاورة بسهولة وسرعة وفودافون كاش.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,683 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // 1. GLOBAL SAFETY NET (Default-Deny Catch-All)
+    // =========================================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // 2. HARDENED PRIMITIVES & GLOBAL HELPERS
+    // =========================================================================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() &&
+        ('email_verified' in request.auth.token) &&
+        request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        (('email' in request.auth.token) && request.auth.token.email in ['la4416884@gmail.com', 'slahm7344@gmail.com']) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isApprovedDriver() {
+      return isVerifiedUser() &&
+        exists(/databases/$(database)/documents/drivers/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/drivers/$(request.auth.uid)).data.approvalStatus == 'approved';
+    }
+
+    // =========================================================================
+    // 3. ENTITY VALIDATION BLUEPRINTS (Anti-Update-Gap)
+    // =========================================================================
+
+    function isValidAdminRecord(data) {
+      return data.keys().hasAll(['uid', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'createdAt']) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['userId', 'name', 'phone', 'accountType', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['userId', 'name', 'email', 'phone', 'role', 'accountType', 'createdAt', 'updatedAt']) &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 && data.userId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 150)) &&
+        data.phone is string && data.phone.size() >= 5 && data.phone.size() <= 25 &&
+        (!('role' in data) || (data.role is string && data.role in ['customer', 'driver', 'admin'])) &&
+        (!('role' in data) || data.role in ['customer', 'driver'] || isAdmin()) &&
+        data.accountType is string && data.accountType in ['customer', 'driver'] &&
+        // Anonymous users can only have customer role and customer accountType; driver/admin require verified Google login
+        (
+          (data.accountType == 'customer' && (!('role' in data) || data.role == 'customer')) ||
+          isVerifiedUser()
+        ) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidDriverProfile(data) {
+      return data.keys().hasAll([
+          'userId',
+          'displayName',
+          'captainCode',
+          'contactPhone',
+          'roleTitle',
+          'approvalStatus',
+          'online',
+          'available',
+          'locationLat',
+          'locationLng',
+          'vehicleType',
+          'vehicleModel',
+          'plateNumber',
+          'rating',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'userId',
+          'displayName',
+          'email',
+          'captainCode',
+          'contactPhone',
+          'roleTitle',
+          'approvalStatus',
+          'online',
+          'available',
+          'locationLat',
+          'locationLng',
+          'vehicleType',
+          'vehicleModel',
+          'plateNumber',
+          'rating',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 && data.userId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 150)) &&
+        data.captainCode is string && data.captainCode.size() >= 1 && data.captainCode.size() <= 40 &&
+        data.contactPhone is string && data.contactPhone.size() >= 5 && data.contactPhone.size() <= 25 &&
+        data.roleTitle is string && data.roleTitle.size() >= 1 && data.roleTitle.size() <= 120 &&
+        data.approvalStatus is string && data.approvalStatus in ['pending', 'approved', 'rejected', 'suspended'] &&
+        data.online is bool &&
+        data.available is bool &&
+        // Unapproved drivers (pending, rejected, suspended) can NEVER be online or available; offline drivers can NEVER be available
+        (data.approvalStatus == 'approved' || (data.online == false && data.available == false)) &&
+        (data.online == true || data.available == false) &&
+        data.locationLat is number && data.locationLat >= -90 && data.locationLat <= 90 &&
+        data.locationLng is number && data.locationLng >= -180 && data.locationLng <= 180 &&
+        data.vehicleType is string && data.vehicleType.size() >= 1 && data.vehicleType.size() <= 50 &&
+        data.vehicleModel is string && data.vehicleModel.size() >= 1 && data.vehicleModel.size() <= 80 &&
+        data.plateNumber is string && data.plateNumber.size() >= 1 && data.plateNumber.size() <= 40 &&
+        data.rating is number && data.rating >= 0 && data.rating <= 5 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidRideRequest(data) {
+      return data.keys().hasAll([
+          'requestId',
+          'orderNumber',
+          'customerId',
+          'customerName',
+          'serviceType',
+          'pickupVillage',
+          'dropoffVillage',
+          'status'
+        ]) &&
+        data.keys().hasOnly([
+          'requestId',
+          'orderNumber',
+          'customerId',
+          'customerName',
+          'customerEmail',
+          'customerContact',
+          'serviceType',
+          'type',
+          'sameVillageTier',
+          'category',
+          'pickupVillage',
+          'pickupSpecific',
+          'pickupLat',
+          'pickupLng',
+          'dropoffVillage',
+          'dropoffSpecific',
+          'dropoffNote',
+          'destinationLat',
+          'destinationLng',
+          'distanceKm',
+          'estimatedFare',
+          'finalFare',
+          'paymentMethod',
+          'notes',
+          'status',
+          'driverId',
+          'driverName',
+          'driverCode',
+          'driverPhone',
+          'driverContact',
+          'plateNumber',
+          'driverRole',
+          'etaMinutes',
+          'driverCurrentLat',
+          'driverCurrentLng',
+          'driverLocationUpdatedAt',
+          'customerRating',
+          'ratingComment',
+          'ratedAt',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.requestId is string && data.requestId.size() >= 1 && data.requestId.size() <= 128 && data.requestId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.orderNumber is string && data.orderNumber.size() >= 1 && data.orderNumber.size() <= 16 &&
+        data.customerId is string && data.customerId.size() >= 1 && data.customerId.size() <= 128 && data.customerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 100 &&
+        (!('customerEmail' in data) || (data.customerEmail is string && data.customerEmail.size() <= 150)) &&
+        (!('customerContact' in data) || (data.customerContact is string && data.customerContact.size() <= 25)) &&
+        data.serviceType is string && data.serviceType in ['ride', 'delivery'] &&
+        (!('type' in data) || (data.type is string && data.type in ['ride', 'delivery'])) &&
+        (!('sameVillageTier' in data) || (data.sameVillageTier is string && data.sameVillageTier in ['near', 'medium', 'far'])) &&
+        (!('category' in data) || (data.category is string && data.category.size() <= 100)) &&
+        data.pickupVillage is string && data.pickupVillage.size() >= 1 && data.pickupVillage.size() <= 120 &&
+        (!('pickupSpecific' in data) || (data.pickupSpecific is string && data.pickupSpecific.size() <= 200)) &&
+        (!('pickupLat' in data) || (data.pickupLat is number && data.pickupLat >= -90 && data.pickupLat <= 90)) &&
+        (!('pickupLng' in data) || (data.pickupLng is number && data.pickupLng >= -180 && data.pickupLng <= 180)) &&
+        data.dropoffVillage is string && data.dropoffVillage.size() >= 1 && data.dropoffVillage.size() <= 120 &&
+        (!('dropoffSpecific' in data) || (data.dropoffSpecific is string && data.dropoffSpecific.size() <= 200)) &&
+        (!('dropoffNote' in data) || (data.dropoffNote is string && data.dropoffNote.size() <= 200)) &&
+        (!('destinationLat' in data) || (data.destinationLat is number && data.destinationLat >= -90 && data.destinationLat <= 90)) &&
+        (!('destinationLng' in data) || (data.destinationLng is number && data.destinationLng >= -180 && data.destinationLng <= 180)) &&
+        (!('distanceKm' in data) || (data.distanceKm is number && data.distanceKm >= 0 && data.distanceKm <= 500)) &&
+        (!('estimatedFare' in data) || (data.estimatedFare is number && data.estimatedFare >= 0 && data.estimatedFare <= 10000)) &&
+        (!('finalFare' in data) || (data.finalFare is number && data.finalFare >= 0 && data.finalFare <= 10000)) &&
+        (!('paymentMethod' in data) || (data.paymentMethod is string && data.paymentMethod in ['cash', 'vodafone_cash'])) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 500)) &&
+        data.status is string && data.status in ['pending', 'accepted', 'on_the_way', 'arrived', 'completed', 'cancelled'] &&
+        (!('driverId' in data) || (data.driverId is string && data.driverId.size() <= 128)) &&
+        (!('driverName' in data) || (data.driverName is string && data.driverName.size() <= 100)) &&
+        (!('driverCode' in data) || (data.driverCode is string && data.driverCode.size() <= 40)) &&
+        (!('driverPhone' in data) || (data.driverPhone is string && data.driverPhone.size() <= 25)) &&
+        (!('driverContact' in data) || (data.driverContact is string && data.driverContact.size() <= 25)) &&
+        (!('plateNumber' in data) || (data.plateNumber is string && data.plateNumber.size() <= 40)) &&
+        (!('driverRole' in data) || (data.driverRole is string && data.driverRole.size() <= 120)) &&
+        (!('etaMinutes' in data) || (data.etaMinutes is number && data.etaMinutes >= 0 && data.etaMinutes <= 180)) &&
+        (!('driverCurrentLat' in data) || (data.driverCurrentLat is number && data.driverCurrentLat >= -90 && data.driverCurrentLat <= 90)) &&
+        (!('driverCurrentLng' in data) || (data.driverCurrentLng is number && data.driverCurrentLng >= -180 && data.driverCurrentLng <= 180)) &&
+        (!('driverLocationUpdatedAt' in data) || data.driverLocationUpdatedAt is timestamp) &&
+        (!('customerRating' in data) || (data.customerRating is number && data.customerRating >= 1 && data.customerRating <= 5)) &&
+        (!('ratingComment' in data) || (data.ratingComment is string && data.ratingComment.size() <= 500)) &&
+        (!('ratedAt' in data) || data.ratedAt is timestamp) &&
+        (!('createdAt' in data) || data.createdAt is timestamp) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidRideContact(data) {
+      return data.keys().hasAll(['requestId', 'customerId', 'customerPhone', 'createdAt']) &&
+        data.keys().hasOnly(['requestId', 'customerId', 'customerPhone', 'createdAt']) &&
+        data.requestId is string && data.requestId.size() >= 1 && data.requestId.size() <= 128 && data.requestId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.customerId is string && data.customerId.size() >= 1 && data.customerId.size() <= 128 && data.customerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        isSignedIn() && data.customerId == request.auth.uid &&
+        data.customerPhone is string && data.customerPhone.size() >= 5 && data.customerPhone.size() <= 25 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidChatRateLimit(data) {
+      return data.keys().hasAll(['userId', 'lastMessageAt']) &&
+        data.keys().hasOnly(['userId', 'lastMessageAt']) &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 && data.userId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        isSignedIn() && data.userId == request.auth.uid &&
+        data.lastMessageAt is timestamp;
+    }
+
+    function isValidOrderMessage(data) {
+      return data.keys().hasAll([
+          'orderId',
+          'senderId',
+          'customerId',
+          'driverId',
+          'senderRole',
+          'text',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'orderId',
+          'senderId',
+          'customerId',
+          'driverId',
+          'senderRole',
+          'text',
+          'createdAt'
+        ]) &&
+        data.orderId is string && data.orderId.size() >= 1 && data.orderId.size() <= 128 && data.orderId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.senderId is string && data.senderId.size() >= 1 && data.senderId.size() <= 128 && data.senderId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        isSignedIn() && data.senderId == request.auth.uid &&
+        data.customerId is string && data.customerId.size() >= 1 && data.customerId.size() <= 128 && data.customerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.driverId is string && data.driverId.size() >= 1 && data.driverId.size() <= 128 && data.driverId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.senderRole is string && data.senderRole in ['customer', 'driver'] &&
+        data.text is string && data.text.size() >= 1 && data.text.size() <= 300 && !data.text.matches('^\\s*$') &&
+        data.createdAt is timestamp;
+    }
+
+    // =========================================================================
+    // 4. COLLECTION MATCH BLOCKS
+    // =========================================================================
+
+    // /admins/{adminId}
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && isValidId(adminId) && (isAdmin() || request.auth.uid == adminId);
+      allow list: if isSignedIn() && (isAdmin() || resource.data.uid == request.auth.uid);
+      allow create: if isAdmin() && isValidId(adminId) && isValidAdminRecord(incoming()) && incoming().uid == adminId && incoming().createdAt == request.time;
+      allow update: if isAdmin() && isValidId(adminId) && isValidAdminRecord(incoming()) && incoming().uid == existing().uid && incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin() && isValidId(adminId);
+    }
+
+    // /users/{userId} (PII Isolated to Authenticated Owner or Admin; supports Firebase Anonymous Auth & Google Auth)
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (isAdmin() || request.auth.uid == userId);
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        isValidUserProfile(incoming()) &&
+        incoming().userId == userId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn() &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming()) &&
+        incoming().userId == userId && (
+          isAdmin() || (
+            request.auth.uid == userId &&
+            incoming().userId == existing().userId &&
+            (incoming().createdAt == existing().createdAt || incoming().createdAt == request.time) &&
+            incoming().updatedAt == request.time &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email', 'phone', 'role', 'accountType', 'createdAt', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    // /drivers/{driverId}
+    // Driver Approval & Captain Management System (Requires Verified Google Auth):
+    // - New driver join applications MUST start with approvalStatus == 'pending', online == false, available == false.
+    // - Only Admin can set approvalStatus to 'approved', 'rejected', or 'suspended', and only Admin can delete driver profiles.
+    // - Suspended drivers cannot bypass suspension by resetting their status to 'pending'.
+    // - Driver can ONLY go online/available or update live location when approvalStatus == 'approved'.
+    match /drivers/{driverId} {
+      allow get: if isValidId(driverId) && (
+        isAdmin() ||
+        (isSignedIn() && request.auth.uid == driverId) ||
+        (resource != null && resource.data.online == true)
+      );
+
+      allow list: if isAdmin() ||
+        resource.data.online == true ||
+        (isSignedIn() && resource.data.userId == request.auth.uid);
+
+      allow create: if isVerifiedUser() &&
+        isValidId(driverId) &&
+        driverId == request.auth.uid &&
+        isValidDriverProfile(incoming()) &&
+        incoming().userId == request.auth.uid &&
+        incoming().approvalStatus == 'pending' &&
+        incoming().online == false &&
+        incoming().available == false &&
+        incoming().rating == 5 &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(driverId) &&
+        isValidDriverProfile(incoming()) &&
+        incoming().userId == driverId &&
+        incoming().updatedAt == request.time && (
+          isAdmin() || (
+            request.auth.uid == driverId &&
+            (incoming().createdAt == request.time || ('createdAt' in existing() && incoming().createdAt == existing().createdAt)) &&
+            (!('rating' in existing()) ? incoming().rating == 5 : incoming().rating == existing().rating) &&
+            (
+              // Action 1: Approved Captain toggles Online / Availability / Location
+              (
+                'approvalStatus' in existing() &&
+                existing().approvalStatus == 'approved' &&
+                incoming().approvalStatus == 'approved' &&
+                incoming().diff(existing()).affectedKeys().hasOnly(['online', 'available', 'locationLat', 'locationLng', 'updatedAt'])
+              ) ||
+              // Action 2: Approved Captain updates Full Driver Profile & Vehicle Info
+              (
+                'approvalStatus' in existing() &&
+                existing().approvalStatus == 'approved' &&
+                incoming().approvalStatus == 'approved' &&
+                incoming().diff(existing()).affectedKeys().hasOnly([
+                  'userId',
+                  'displayName',
+                  'email',
+                  'captainCode',
+                  'contactPhone',
+                  'roleTitle',
+                  'approvalStatus',
+                  'online',
+                  'available',
+                  'locationLat',
+                  'locationLng',
+                  'vehicleType',
+                  'vehicleModel',
+                  'plateNumber',
+                  'rating',
+                  'createdAt',
+                  'updatedAt'
+                ])
+              ) ||
+              // Action 3: Pending or Rejected Captain updates / resubmits Join Application (stays pending & offline; suspended drivers CANNOT bypass suspension)
+              (
+                (!('approvalStatus' in existing()) || existing().approvalStatus in ['pending', 'rejected']) &&
+                incoming().approvalStatus == 'pending' &&
+                incoming().online == false &&
+                incoming().available == false &&
+                incoming().diff(existing()).affectedKeys().hasOnly([
+                  'userId',
+                  'displayName',
+                  'email',
+                  'captainCode',
+                  'contactPhone',
+                  'roleTitle',
+                  'approvalStatus',
+                  'online',
+                  'available',
+                  'locationLat',
+                  'locationLng',
+                  'vehicleType',
+                  'vehicleModel',
+                  'plateNumber',
+                  'rating',
+                  'createdAt',
+                  'updatedAt'
+                ])
+              )
+            )
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(driverId);
+    }
+
+    // /rideRequests/{requestId}
+    match /rideRequests/{requestId} {
+      allow get: if isSignedIn() && isValidId(requestId) && (
+        isAdmin() ||
+        (
+          resource != null && (
+            resource.data.customerId == request.auth.uid ||
+            (isApprovedDriver() && (resource.data.driverId == request.auth.uid || resource.data.status == 'pending'))
+          )
+        )
+      );
+
+      allow list: if isSignedIn() && (
+        isAdmin() ||
+        resource.data.customerId == request.auth.uid ||
+        (isApprovedDriver() && (resource.data.driverId == request.auth.uid || resource.data.status == 'pending'))
+      );
+
+      allow create: if isSignedIn() &&
+        isValidId(requestId) &&
+        isValidRideRequest(incoming()) &&
+        incoming().requestId == requestId &&
+        incoming().customerId == request.auth.uid &&
+        'customerContact' in incoming() &&
+        incoming().customerContact == '' &&
+        'driverId' in incoming() &&
+        incoming().driverId == '' &&
+        'driverName' in incoming() &&
+        incoming().driverName == '' &&
+        'driverCode' in incoming() &&
+        incoming().driverCode == '' &&
+        'driverPhone' in incoming() &&
+        incoming().driverPhone == '' &&
+        'driverContact' in incoming() &&
+        incoming().driverContact == '' &&
+        'plateNumber' in incoming() &&
+        incoming().plateNumber == '' &&
+        'driverRole' in incoming() &&
+        incoming().driverRole == '' &&
+        'etaMinutes' in incoming() &&
+        incoming().etaMinutes == 0 &&
+        incoming().status == 'pending' &&
+        !('finalFare' in incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/users/$(incoming().customerId));
+
+      allow update: if isSignedIn() &&
+        isValidId(requestId) &&
+        isValidRideRequest(incoming()) && (
+          isAdmin() || (
+            // Terminal State Lock: Completed or Cancelled trips cannot be mutated
+            !(existing().status in ['completed', 'cancelled']) &&
+            // Immortal Fields Check
+            incoming().customerId == existing().customerId &&
+            incoming().updatedAt == request.time && (
+              // Action 1: Authenticated Customer Cancels Own Request (allowed while pending, accepted, or on_the_way)
+              (
+                existing().customerId == request.auth.uid &&
+                existing().status in ['pending', 'accepted', 'on_the_way'] &&
+                incoming().status == 'cancelled' &&
+                incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+              ) ||
+              // Action 1b: Assigned Approved Driver Cancels Request
+              (
+                'driverId' in existing() &&
+                existing().driverId == request.auth.uid &&
+                existing().status in ['accepted', 'on_the_way'] &&
+                incoming().status == 'cancelled' &&
+                isApprovedDriver() &&
+                incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+              ) ||
+              // Action 2: Online Approved Driver Accepts Pending Request (via Transaction)
+              (
+                existing().status == 'pending' &&
+                (!('driverId' in existing()) || existing().driverId == '') &&
+                incoming().status == 'accepted' &&
+                'driverId' in incoming() &&
+                incoming().driverId == request.auth.uid &&
+                incoming().driverId.size() >= 1 &&
+                'driverName' in incoming() &&
+                incoming().driverName.size() >= 1 &&
+                'driverPhone' in incoming() &&
+                incoming().driverPhone.size() >= 5 &&
+                'plateNumber' in incoming() &&
+                incoming().plateNumber.size() >= 1 &&
+                isApprovedDriver() &&
+                get(/databases/$(database)/documents/drivers/$(request.auth.uid)).data.online == true &&
+                incoming().diff(existing()).affectedKeys().hasOnly([
+                  'status',
+                  'driverId',
+                  'driverName',
+                  'driverCode',
+                  'driverPhone',
+                  'driverContact',
+                  'plateNumber',
+                  'driverRole',
+                  'etaMinutes',
+                  'updatedAt'
+                ])
+              ) ||
+              // Action 3: Assigned Approved Driver Advances Trip Status Sequentially (optionally setting finalFare)
+              (
+                'driverId' in existing() &&
+                existing().driverId == request.auth.uid &&
+                (
+                  (existing().status == 'accepted' && incoming().status == 'on_the_way') ||
+                  (existing().status == 'on_the_way' && incoming().status == 'arrived') ||
+                  (existing().status == 'arrived' && incoming().status == 'completed')
+                ) &&
+                isApprovedDriver() &&
+                incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt', 'finalFare'])
+              ) ||
+              // Action 4: Assigned Approved Driver Sets or Confirms Final Fare
+              (
+                'driverId' in existing() &&
+                existing().driverId == request.auth.uid &&
+                existing().status in ['accepted', 'on_the_way', 'arrived'] &&
+                incoming().status == existing().status &&
+                isApprovedDriver() &&
+                incoming().diff(existing()).affectedKeys().hasOnly(['finalFare', 'updatedAt'])
+              )
+            )
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(requestId);
+    }
+
+    // /rideContacts/{requestId}
+    match /rideContacts/{requestId} {
+      allow get: if isSignedIn() && isValidId(requestId) && (
+        isAdmin() ||
+        (resource != null && resource.data.customerId == request.auth.uid) ||
+        (
+          isApprovedDriver() &&
+          exists(/databases/$(database)/documents/rideRequests/$(requestId)) &&
+          get(/databases/$(database)/documents/rideRequests/$(requestId)).data.driverId == request.auth.uid &&
+          get(/databases/$(database)/documents/rideRequests/$(requestId)).data.status in ['accepted', 'on_the_way', 'arrived']
+        )
+      );
+
+      allow list: if isSignedIn() && (
+        isAdmin() ||
+        resource.data.customerId == request.auth.uid
+      );
+
+      allow create: if isSignedIn() &&
+        isValidId(requestId) &&
+        isValidRideContact(incoming()) &&
+        incoming().requestId == requestId &&
+        incoming().customerId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        existsAfter(/databases/$(database)/documents/rideRequests/$(requestId)) &&
+        getAfter(/databases/$(database)/documents/rideRequests/$(requestId)).data.customerId == request.auth.uid;
+
+      allow update: if isSignedIn() &&
+        isValidId(requestId) && (
+          isAdmin() || (
+            isValidRideContact(incoming()) &&
+            existing().customerId == request.auth.uid &&
+            incoming().requestId == existing().requestId &&
+            incoming().customerId == existing().customerId &&
+            incoming().createdAt == existing().createdAt &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['customerPhone'])
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(requestId);
+    }
+
+    // /chatRateLimits/{userId}
+    match /chatRateLimits/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (isAdmin() || request.auth.uid == userId);
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        isValidChatRateLimit(incoming()) &&
+        incoming().lastMessageAt == request.time;
+
+      allow update: if isSignedIn() &&
+        isValidId(userId) && (
+          isAdmin() || (
+            isValidChatRateLimit(incoming()) &&
+            request.auth.uid == userId &&
+            incoming().userId == existing().userId &&
+            incoming().lastMessageAt == request.time &&
+            request.time >= existing().lastMessageAt + duration.value(1, 's') &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['lastMessageAt'])
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    // /orders/{orderId}/messages/{messageId}
+    match /orders/{orderId}/messages/{messageId} {
+      allow get: if isSignedIn() && isValidId(orderId) && isValidId(messageId) && (
+        isAdmin() ||
+        (
+          resource != null &&
+          (
+            resource.data.customerId == request.auth.uid ||
+            (isApprovedDriver() && resource.data.driverId == request.auth.uid)
+          ) &&
+          exists(/databases/$(database)/documents/rideRequests/$(orderId))
+        )
+      );
+
+      allow list: if isSignedIn() && isValidId(orderId) && (
+        isAdmin() ||
+        resource.data.customerId == request.auth.uid ||
+        (isApprovedDriver() && resource.data.driverId == request.auth.uid)
+      );
+
+      allow create: if isSignedIn() &&
+        isValidId(orderId) &&
+        isValidId(messageId) &&
+        isValidOrderMessage(incoming()) &&
+        incoming().orderId == orderId &&
+        incoming().createdAt == request.time &&
+        // Rate limit: max 1 message per second per user
+        (
+          !exists(/databases/$(database)/documents/chatRateLimits/$(incoming().senderId)) ||
+          request.time >= get(/databases/$(database)/documents/chatRateLimits/$(incoming().senderId)).data.lastMessageAt + duration.value(1, 's')
+        ) &&
+        getAfter(/databases/$(database)/documents/chatRateLimits/$(incoming().senderId)).data.lastMessageAt == request.time &&
+        // Master Gate: Verify order exists, is in 'accepted' or 'on_the_way', and sender is the order's customer or accepted approved driver
+        exists(/databases/$(database)/documents/rideRequests/$(orderId)) &&
+        get(/databases/$(database)/documents/rideRequests/$(orderId)).data.status in ['accepted', 'on_the_way'] &&
+        incoming().customerId == get(/databases/$(database)/documents/rideRequests/$(orderId)).data.customerId &&
+        incoming().driverId == get(/databases/$(database)/documents/rideRequests/$(orderId)).data.driverId &&
+        (
+          (
+            request.auth.uid == get(/databases/$(database)/documents/rideRequests/$(orderId)).data.customerId &&
+            incoming().senderId == request.auth.uid &&
+            incoming().senderRole == 'customer'
+          ) ||
+          (
+            isApprovedDriver() &&
+            request.auth.uid == get(/databases/$(database)/documents/rideRequests/$(orderId)).data.driverId &&
+            incoming().senderId == request.auth.uid &&
+            incoming().senderRole == 'driver'
+          )
+        );
+
+      allow update: if isAdmin() && isValidId(orderId) && isValidId(messageId) && isValidOrderMessage(incoming());
+      allow delete: if isAdmin() && isValidId(orderId) && isValidId(messageId);
+    }
+  }
+}

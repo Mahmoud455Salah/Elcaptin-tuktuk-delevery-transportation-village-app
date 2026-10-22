@@ -1,0 +1,558 @@
+{
+  "entities": {
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted administrator record keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Administrator user UID",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of admin creation"
+        }
+      },
+      "required": ["uid", "createdAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private user account profile containing customer, driver, or admin role and contact info.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Full display name of the user",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "email": {
+          "type": "string",
+          "description": "Authenticated user email address",
+          "minLength": 0,
+          "maxLength": 150
+        },
+        "phone": {
+          "type": "string",
+          "description": "Egyptian mobile phone number",
+          "minLength": 5,
+          "maxLength": 25
+        },
+        "role": {
+          "type": "string",
+          "description": "Primary user role (customer, driver, or admin)",
+          "enum": ["customer", "driver", "admin"]
+        },
+        "accountType": {
+          "type": "string",
+          "description": "Selected user mode (customer or driver)",
+          "enum": ["customer", "driver"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when user profile was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when user profile was last updated"
+        }
+      },
+      "required": ["userId", "name", "phone", "accountType", "createdAt", "updatedAt"]
+    },
+    "DriverProfile": {
+      "title": "DriverProfile",
+      "description": "Operational driver profile, vehicle details, and real-time online/availability state.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the driver",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Captain display name",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "email": {
+          "type": "string",
+          "description": "Authenticated driver email address",
+          "minLength": 0,
+          "maxLength": 150
+        },
+        "captainCode": {
+          "type": "string",
+          "description": "Captain fleet code (e.g. كـ 111)",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "contactPhone": {
+          "type": "string",
+          "description": "Driver operational contact phone for customers",
+          "minLength": 5,
+          "maxLength": 25
+        },
+        "roleTitle": {
+          "type": "string",
+          "description": "Captain role or coverage sector description",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "approvalStatus": {
+          "type": "string",
+          "description": "Admin approval status of the captain join request",
+          "enum": ["pending", "approved", "rejected"]
+        },
+        "online": {
+          "type": "boolean",
+          "description": "Whether the driver is currently online"
+        },
+        "available": {
+          "type": "boolean",
+          "description": "Whether the driver is currently available for new trips"
+        },
+        "locationLat": {
+          "type": "number",
+          "description": "Current latitude coordinate"
+        },
+        "locationLng": {
+          "type": "number",
+          "description": "Current longitude coordinate"
+        },
+        "vehicleType": {
+          "type": "string",
+          "description": "Type of vehicle (e.g. tuktuk)",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "vehicleModel": {
+          "type": "string",
+          "description": "Vehicle model year or description",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "plateNumber": {
+          "type": "string",
+          "description": "Vehicle plate or fleet number",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "rating": {
+          "type": "number",
+          "description": "Driver average rating (1 to 5)"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when driver profile was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when driver profile was last updated"
+        }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "captainCode",
+        "contactPhone",
+        "roleTitle",
+        "online",
+        "available",
+        "locationLat",
+        "locationLng",
+        "vehicleType",
+        "vehicleModel",
+        "plateNumber",
+        "rating",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "RideRequest": {
+      "title": "RideRequest",
+      "description": "Real-time ride or delivery order connecting a customer with available fleet drivers. Customer phone is isolated in /rideContacts/{requestId} so pending drivers cannot read it.",
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "description": "Document ID of the ride request",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "orderNumber": {
+          "type": "string",
+          "description": "4-digit short order code",
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "customerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the requesting customer",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerName": {
+          "type": "string",
+          "description": "Name of the customer",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "customerEmail": {
+          "type": "string",
+          "description": "Email address of the customer",
+          "minLength": 0,
+          "maxLength": 150
+        },
+        "customerContact": {
+          "type": "string",
+          "description": "Always empty on public rideRequest doc to prevent pending drivers from reading customer phone numbers",
+          "minLength": 0,
+          "maxLength": 25
+        },
+        "serviceType": {
+          "type": "string",
+          "description": "Type of service requested",
+          "enum": ["ride", "delivery"]
+        },
+        "type": {
+          "type": "string",
+          "description": "Order type: ride or delivery",
+          "enum": ["ride", "delivery"]
+        },
+        "sameVillageTier": {
+          "type": "string",
+          "description": "Distance tier within same village: near, medium, far",
+          "enum": ["near", "medium", "far"]
+        },
+        "category": {
+          "type": "string",
+          "description": "Customer order category: بقالة, علاج, خضار وفاكهة, أكل, طرد / شحنة, مشوار شخصي, أخرى",
+          "minLength": 0,
+          "maxLength": 100
+        },
+        "pickupVillage": {
+          "type": "string",
+          "description": "Pickup village or area name",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "pickupSpecific": {
+          "type": "string",
+          "description": "Specific landmark at pickup",
+          "minLength": 0,
+          "maxLength": 200
+        },
+        "pickupLat": {
+          "type": "number",
+          "description": "Exact pickup latitude coordinate"
+        },
+        "pickupLng": {
+          "type": "number",
+          "description": "Exact pickup longitude coordinate"
+        },
+        "dropoffVillage": {
+          "type": "string",
+          "description": "Dropoff village or destination name",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "dropoffSpecific": {
+          "type": "string",
+          "description": "Specific landmark at dropoff (legacy alias synced with dropoffNote)",
+          "minLength": 0,
+          "maxLength": 200
+        },
+        "dropoffNote": {
+          "type": "string",
+          "description": "Customer note/landmark for the dropoff location",
+          "minLength": 0,
+          "maxLength": 200
+        },
+        "destinationLat": {
+          "type": "number",
+          "description": "Exact destination latitude coordinate"
+        },
+        "destinationLng": {
+          "type": "number",
+          "description": "Exact destination longitude coordinate"
+        },
+        "distanceKm": {
+          "type": "number",
+          "description": "Estimated route distance in kilometers"
+        },
+        "estimatedFare": {
+          "type": "number",
+          "description": "Estimated fare in EGP"
+        },
+        "finalFare": {
+          "type": "number",
+          "description": "Final fare agreed or confirmed by the captain in EGP"
+        },
+        "paymentMethod": {
+          "type": "string",
+          "description": "Chosen payment method",
+          "enum": ["cash", "vodafone_cash"]
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional trip or delivery notes",
+          "minLength": 0,
+          "maxLength": 500
+        },
+        "status": {
+          "type": "string",
+          "description": "Real-time lifecycle status of the request",
+          "enum": ["pending", "accepted", "on_the_way", "arrived", "completed", "cancelled"]
+        },
+        "driverId": {
+          "type": "string",
+          "description": "UID of the assigned driver (empty string when pending)",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "driverName": {
+          "type": "string",
+          "description": "Name of the assigned driver",
+          "minLength": 0,
+          "maxLength": 100
+        },
+        "driverCode": {
+          "type": "string",
+          "description": "Code of the assigned captain (e.g. كـ 111)",
+          "minLength": 0,
+          "maxLength": 40
+        },
+        "driverPhone": {
+          "type": "string",
+          "description": "Phone number of the assigned driver",
+          "minLength": 0,
+          "maxLength": 25
+        },
+        "driverContact": {
+          "type": "string",
+          "description": "Phone number of the assigned driver (legacy alias)",
+          "minLength": 0,
+          "maxLength": 25
+        },
+        "plateNumber": {
+          "type": "string",
+          "description": "Vehicle plate number of the assigned driver",
+          "minLength": 0,
+          "maxLength": 40
+        },
+        "driverRole": {
+          "type": "string",
+          "description": "Role badge of the assigned driver",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "etaMinutes": {
+          "type": "number",
+          "description": "Estimated arrival time in minutes"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of request creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last status update"
+        }
+      },
+      "required": [
+        "requestId",
+        "orderNumber",
+        "customerId",
+        "customerName",
+        "customerContact",
+        "serviceType",
+        "pickupVillage",
+        "pickupSpecific",
+        "dropoffVillage",
+        "dropoffSpecific",
+        "dropoffNote",
+        "distanceKm",
+        "estimatedFare",
+        "paymentMethod",
+        "notes",
+        "status",
+        "driverId",
+        "driverName",
+        "driverCode",
+        "driverPhone",
+        "driverContact",
+        "plateNumber",
+        "driverRole",
+        "etaMinutes",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "RideContact": {
+      "title": "RideContact",
+      "description": "Isolated customer phone number for an order. Readable only by the customer, admin, or the assigned driver while the order is active (accepted, on_the_way, arrived).",
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "description": "Order ID matching /rideRequests/{requestId}",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerId": {
+          "type": "string",
+          "description": "UID of the customer who owns this order",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerPhone": {
+          "type": "string",
+          "description": "Customer phone number",
+          "minLength": 5,
+          "maxLength": 25
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation"
+        }
+      },
+      "required": ["requestId", "customerId", "customerPhone", "createdAt"]
+    },
+    "ChatRateLimit": {
+      "title": "ChatRateLimit",
+      "description": "Per-user rate limit tracker enforcing max 1 chat message per second.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "UID of the user sending a message",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "lastMessageAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the user's most recent message"
+        }
+      },
+      "required": ["userId", "lastMessageAt"]
+    },
+    "OrderMessage": {
+      "title": "OrderMessage",
+      "description": "Real-time chat message between the customer and the accepted driver of an order.",
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string",
+          "description": "ID of the parent order",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "senderId": {
+          "type": "string",
+          "description": "UID of the message sender",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerId": {
+          "type": "string",
+          "description": "UID of the order's customer",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "driverId": {
+          "type": "string",
+          "description": "UID of the order's accepted driver",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "senderRole": {
+          "type": "string",
+          "description": "Role of the sender in this order",
+          "enum": ["customer", "driver"]
+        },
+        "text": {
+          "type": "string",
+          "description": "Non-empty chat message text (1 to 300 chars)",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when message was sent"
+        }
+      },
+      "required": [
+        "orderId",
+        "senderId",
+        "customerId",
+        "driverId",
+        "senderRole",
+        "text",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Trusted administrator lookup collection."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user profile documents keyed by Auth UID."
+    },
+    "/drivers/{driverId}": {
+      "schema": { "$ref": "#/entities/DriverProfile" },
+      "description": "Driver profile and online availability documents keyed by Auth UID."
+    },
+    "/rideRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/RideRequest" },
+      "description": "Real-time ride and delivery requests connecting customers and drivers."
+    },
+    "/rideContacts/{requestId}": {
+      "schema": { "$ref": "#/entities/RideContact" },
+      "description": "Isolated customer contact phone number accessible only to the customer and the accepted driver during active trip states."
+    },
+    "/chatRateLimits/{userId}": {
+      "schema": { "$ref": "#/entities/ChatRateLimit" },
+      "description": "Per-user chat rate limit timestamp enforcing max 1 message per second."
+    },
+    "/orders/{orderId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/OrderMessage" },
+      "description": "Real-time in-app chat messages for an active order."
+    }
+  }
+}
